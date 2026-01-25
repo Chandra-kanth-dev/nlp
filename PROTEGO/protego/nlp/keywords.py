@@ -1,32 +1,39 @@
 """
 keywords.py
 ============
-Domain-specific keyword banks for PROTEGO.
+Enhanced domain-specific keyword banks for PROTEGO.
 
-These keywords act as a SAFETY NET to prevent false negatives.
-They NEVER replace ML models.
-
-Design goals:
-- Phrase-aware matching
-- Word-boundary safety
-- Explainable keyword hits
-- Deterministic behavior
+Upgrades:
+- Better implicit danger coverage
+- Stronger coercive control detection
+- Panic & escalation language
+- Fully backward compatible
 """
 
 import re
 from typing import Iterable, Dict
 
+
 # -------------------------------------------------
 # Emergency / life-threatening
 # -------------------------------------------------
 EMERGENCY_KEYWORDS = {
+    # Explicit violence
     "kill", "killing", "knife", "gun", "weapon", "blood",
     "strangle", "strangling", "choking",
     "attack", "attacking",
     "dying", "death",
+
+    # Threat escalation
     "threatening", "threat",
-    "help now", "right now", "immediately"
+    "finish me", "end me",
+    "won't survive", "will die",
+
+    # Immediate urgency
+    "help now", "right now", "immediately",
+    "call police", "call ambulance"
 }
+
 
 # -------------------------------------------------
 # Physical abuse indicators
@@ -35,8 +42,16 @@ PHYSICAL_ABUSE_KEYWORDS = {
     "hit", "hitting", "beat", "beating",
     "slap", "slapped", "punch", "punched",
     "kick", "kicked", "push", "pushed",
-    "bruise", "injury", "hurt"
+    "bruise", "injury", "hurt",
+
+    # Restraint & force
+    "grab", "grabbed",
+    "hold me", "holding me",
+    "block", "blocked",
+    "lock", "locked",
+    "throw", "threw"
 }
+
 
 # -------------------------------------------------
 # Emotional / psychological abuse
@@ -46,17 +61,34 @@ EMOTIONAL_ABUSE_KEYWORDS = {
     "control", "controlling",
     "humiliate", "humiliated",
     "threaten", "threatening",
-    "manipulate", "manipulating"
+    "manipulate", "manipulating",
+
+    # Coercive control
+    "monitor", "monitoring",
+    "track", "tracking",
+    "isolate", "isolating",
+    "doesn't let me",
+    "won't let me",
+    "checks my phone"
 }
 
+
 # -------------------------------------------------
-# Fear & safety concern
+# Fear & panic indicators
 # -------------------------------------------------
 FEAR_KEYWORDS = {
     "scared", "afraid", "fear",
     "unsafe", "danger", "terrified",
-    "panic", "panicking"
+    "panic", "panicking",
+
+    # Panic symptoms
+    "shaking",
+    "heart racing",
+    "can't breathe",
+    "cant breathe",
+    "frozen"
 }
+
 
 # -------------------------------------------------
 # Self-harm / hopelessness (PHRASES ONLY)
@@ -73,8 +105,11 @@ SELF_HARM_KEYWORDS = {
     "i give up",
     "i want everything to stop",
     "i don't want to live",
-    "i dont want to live"
+    "i dont want to live",
+    "nothing matters anymore",
+    "i am done"
 }
+
 
 # -------------------------------------------------
 # Keyword matching engine
@@ -96,12 +131,10 @@ def keyword_hits(text: str, keywords: Iterable[str]) -> int:
     for kw in keywords:
         kw = kw.lower().strip()
 
-        # Phrase match (contains space)
         if " " in kw:
             if kw in text_lower:
                 hits += 1
         else:
-            # Word-boundary safe match
             if re.search(rf"\b{re.escape(kw)}\b", text_lower):
                 hits += 1
 
@@ -109,7 +142,7 @@ def keyword_hits(text: str, keywords: Iterable[str]) -> int:
 
 
 # -------------------------------------------------
-# Explainable keyword scan (optional)
+# Explainable keyword scan (audit/debug)
 # -------------------------------------------------
 def keyword_explain(text: str, keywords: Iterable[str]) -> Dict[str, int]:
     """

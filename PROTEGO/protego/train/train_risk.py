@@ -1,26 +1,13 @@
-
 """
 train_risk.py
 =============
-Training script for risk classification model in PROTEGO.
+Improved training script for SAFETY-CRITICAL risk classification in PROTEGO.
 
-Predicts:
-- low
-- medium
-- high
-- emergency
-
-This model is SAFETY-CRITICAL and is later fused with:
-- emotion analysis
-- sentiment analysis
-- linguistic features
-- rule-based overrides
-
-Design goals:
-- Conservative risk detection
-- Reproducible training
-- Runtime compatibility
-- Audit-ready outputs
+Upgrades:
+- Stronger linear classifier (LinearSVC)
+- Cleaner TF-IDF features
+- Conservative, audit-friendly design
+- Same runtime compatibility
 """
 
 import pandas as pd
@@ -29,7 +16,8 @@ from pathlib import Path
 from collections import Counter
 
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.naive_bayes import MultinomialNB
+from sklearn.svm import LinearSVC
+from sklearn.pipeline import Pipeline
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, accuracy_score
 
@@ -55,10 +43,7 @@ required_cols = {"text", "risk"}
 if not required_cols.issubset(df.columns):
     raise ValueError("Dataset must contain 'text' and 'risk' columns")
 
-# Drop invalid rows
 df = df.dropna(subset=["text", "risk"])
-
-# Normalize labels
 df["risk"] = df["risk"].str.strip().str.lower()
 
 ALLOWED_RISKS = {"low", "medium", "high", "emergency"}
@@ -93,33 +78,45 @@ X_train, X_test, y_train, y_test = train_test_split(
 
 
 # -------------------------------------------------
-# TF-IDF Vectorization
+# Pipeline: TF-IDF + Linear SVM (Conservative)
 # -------------------------------------------------
-vectorizer = TfidfVectorizer(
-    ngram_range=(1, 2),
-    max_features=5000,
-    min_df=1
+pipeline = Pipeline(
+    steps=[
+        (
+            "tfidf",
+            TfidfVectorizer(
+                ngram_range=(1, 2),
+                max_features=8000,
+                min_df=2,
+                sublinear_tf=True
+            )
+        ),
+        (
+            "clf",
+            LinearSVC(
+                class_weight={
+                    "low": 1.0,
+                    "medium": 1.2,
+                    "high": 1.5,
+                    "emergency": 2.0
+                },
+                random_state=42
+            )
+        )
+    ]
 )
 
 
-X_train_vec = vectorizer.fit_transform(X_train)
-X_test_vec = vectorizer.transform(X_test)
+# -------------------------------------------------
+# Train
+# -------------------------------------------------
+pipeline.fit(X_train, y_train)
 
 
 # -------------------------------------------------
-# Train model (safety-biased)
+# Evaluate
 # -------------------------------------------------
-model = MultinomialNB(
-    alpha=0.7  # stronger smoothing to avoid under-predicting emergencies
-)
-
-model.fit(X_train_vec, y_train)
-
-
-# -------------------------------------------------
-# Evaluate model
-# -------------------------------------------------
-y_pred = model.predict(X_test_vec)
+y_pred = pipeline.predict(X_test)
 
 print("\n📊 Risk Model Evaluation")
 print("-" * 40)
@@ -129,11 +126,11 @@ print(classification_report(y_test, y_pred))
 
 
 # -------------------------------------------------
-# Save artifacts (RUNTIME COMPATIBLE)
+# Save artifacts (runtime compatible)
 # -------------------------------------------------
-joblib.dump(model, MODEL_DIR / "risk_model.pkl")
-joblib.dump(vectorizer, MODEL_DIR / "risk_vectorizer.pkl")
+joblib.dump(pipeline.named_steps["clf"], MODEL_DIR / "risk_model.pkl")
+joblib.dump(pipeline.named_steps["tfidf"], MODEL_DIR / "risk_vectorizer.pkl")
 
 print("\n✅ Risk model training complete")
 print(f"📁 Model saved to: {MODEL_DIR / 'risk_model.pkl'}")
-print(f"📁 Vectorizer saved to: {MODEL_DIR / 'vectorizer.pkl'}")
+print(f"📁 Vectorizer saved to: {MODEL_DIR / 'risk_vectorizer.pkl'}")

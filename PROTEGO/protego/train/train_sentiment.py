@@ -1,23 +1,12 @@
 """
 train_sentiment.py
 ==================
-Training script for sentiment analysis model in PROTEGO.
-
-Predicts:
-- positive
-- neutral
-- negative
-
-This model supports:
-- emotional understanding
-- risk fusion
-- safety-aware responses
-
-Design goals:
-- Runtime compatibility
-- Reproducible training
-- Label safety
-- Audit-ready evaluation
+Improved training script for sentiment analysis in PROTEGO.
+Upgrades:
+- Cleaner TF-IDF
+- Better Logistic Regression configuration
+- Pipeline-based training
+- Same runtime compatibility
 """
 
 import pandas as pd
@@ -27,6 +16,7 @@ from collections import Counter
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, accuracy_score
 
@@ -52,10 +42,7 @@ required_cols = {"text", "sentiment"}
 if not required_cols.issubset(df.columns):
     raise ValueError("Dataset must contain 'text' and 'sentiment' columns")
 
-# Drop invalid rows
 df = df.dropna(subset=["text", "sentiment"])
-
-# Normalize labels
 df["sentiment"] = df["sentiment"].str.strip().str.lower()
 
 ALLOWED_SENTIMENTS = {"positive", "neutral", "negative"}
@@ -90,36 +77,43 @@ X_train, X_test, y_train, y_test = train_test_split(
 
 
 # -------------------------------------------------
-# TF-IDF Vectorization
+# Pipeline: TF-IDF + Logistic Regression
 # -------------------------------------------------
-
-vectorizer = TfidfVectorizer(
-    ngram_range=(1, 2),
-    max_features=5000,
-    min_df=1
+pipeline = Pipeline(
+    steps=[
+        (
+            "tfidf",
+            TfidfVectorizer(
+                ngram_range=(1, 2),
+                max_features=8000,
+                min_df=2,
+                sublinear_tf=True
+            )
+        ),
+        (
+            "clf",
+            LogisticRegression(
+                solver="saga",
+                max_iter=3000,
+                class_weight="balanced",
+                random_state=42,
+                n_jobs=-1
+            )
+        )
+    ]
 )
 
-X_train_vec = vectorizer.fit_transform(X_train)
-X_test_vec = vectorizer.transform(X_test)
+
+# -------------------------------------------------
+# Train
+# -------------------------------------------------
+pipeline.fit(X_train, y_train)
 
 
 # -------------------------------------------------
-# Train model
+# Evaluate
 # -------------------------------------------------
-model = LogisticRegression(
-    max_iter=2000,
-    class_weight="balanced",
-    random_state=42,
-    n_jobs=-1
-)
-
-model.fit(X_train_vec, y_train)
-
-
-# -------------------------------------------------
-# Evaluate model
-# -------------------------------------------------
-y_pred = model.predict(X_test_vec)
+y_pred = pipeline.predict(X_test)
 
 print("\n📊 Sentiment Model Evaluation")
 print("-" * 40)
@@ -129,12 +123,11 @@ print(classification_report(y_test, y_pred))
 
 
 # -------------------------------------------------
-# Save artifacts (RUNTIME COMPATIBLE)
+# Save artifacts (runtime compatible)
 # -------------------------------------------------
-joblib.dump(model, MODEL_DIR / "sentiment_model.pkl")
-joblib.dump(vectorizer, MODEL_DIR / "sentiment_vectorizer.pkl")
-
+joblib.dump(pipeline.named_steps["clf"], MODEL_DIR / "sentiment_model.pkl")
+joblib.dump(pipeline.named_steps["tfidf"], MODEL_DIR / "sentiment_vectorizer.pkl")
 
 print("\n✅ Sentiment model training complete")
 print(f"📁 Model saved to: {MODEL_DIR / 'sentiment_model.pkl'}")
-print(f"📁 Vectorizer saved to: {MODEL_DIR / 'vectorizer.pkl'}")
+print(f"📁 Vectorizer saved to: {MODEL_DIR / 'sentiment_vectorizer.pkl'}")

@@ -3,13 +3,12 @@ risk_scoring.py
 ================
 Advanced risk decision engine for PROTEGO.
 
-This module fuses:
-- ML model predictions
-- Linguistic intensity signals
-- Keyword-based safety overrides
-- Conversation context
-
-into a single, explainable, safety-first risk decision.
+Enhanced:
+- Capped linguistic inflation
+- Clearer keyword severity weighting
+- More sensitive context escalation
+- Explicit emergency explanations
+- Fully backward compatible
 """
 
 from typing import Dict, List, Optional
@@ -34,7 +33,7 @@ RISK_ORDER = {
 }
 
 # -------------------------------------------------
-# Component weights (tuned for safety bias)
+# Component weights (safety-biased)
 # -------------------------------------------------
 EMOTION_WEIGHTS = {
     "fear": 3.0,
@@ -69,9 +68,6 @@ RISK_THRESHOLDS = {
 # Emergency type detection
 # -------------------------------------------------
 def detect_emergency_type(text: str) -> Optional[str]:
-    """
-    Detect explicit emergency categories from text.
-    """
     text = text.lower()
 
     if keyword_hits(text, SELF_HARM_KEYWORDS) >= 1:
@@ -96,9 +92,6 @@ def compute_risk(
     ml_risk: str,
     previous_risks: List[str] | None = None
 ) -> Dict[str, object]:
-    """
-    Compute final risk decision with explainability.
-    """
 
     if previous_risks is None:
         previous_risks = []
@@ -116,22 +109,24 @@ def compute_risk(
     explanations.append("baseline_ml_emotion_sentiment")
 
     # -----------------------------
-    # 2️⃣ Linguistic intensity signals
+    # 2️⃣ Linguistic intensity (CAPPED)
     # -----------------------------
     features = extract_features(text)
 
-    score += min(features.get("urgency_count", 0), 3) * 2.0
-    score += min(features.get("intensity", 1.0), 3.0) * 2.0
-    score += min(features.get("repetition_score", 0), 4) * 0.5
+    linguistic_score = 0.0
+    linguistic_score += min(features.get("urgency_count", 0), 3) * 2.0
+    linguistic_score += min(features.get("intensity", 1.0), 1.0) * 2.0
+    linguistic_score += min(features.get("repetition_score", 0), 3) * 0.5
 
+    score += min(linguistic_score, 5.0)  # cap inflation
     explanations.append("linguistic_intensity")
 
     # -----------------------------
-    # 3️⃣ Keyword escalation (capped)
+    # 3️⃣ Keyword escalation (severity-aware)
     # -----------------------------
     score += min(keyword_hits(text, PHYSICAL_ABUSE_KEYWORDS), 3) * 3.0
-    score += min(keyword_hits(text, FEAR_KEYWORDS), 4) * 1.5
-    score += min(keyword_hits(text, SELF_HARM_KEYWORDS), 2) * 4.0
+    score += min(keyword_hits(text, FEAR_KEYWORDS), 4) * 1.2
+    score += min(keyword_hits(text, SELF_HARM_KEYWORDS), 2) * 4.5
 
     explanations.append("keyword_escalation")
 
@@ -142,15 +137,22 @@ def compute_risk(
         recent = previous_risks[-3:]
         numeric = [RISK_ORDER.get(r, 1) for r in recent]
 
-        if numeric[-1] >= numeric[0] and max(numeric) >= RISK_ORDER["high"]:
+        if max(numeric) >= RISK_ORDER["high"]:
             score += 1.5
-            explanations.append("context_escalation")
+            explanations.append("context_high_risk_history")
+
+        elif numeric.count(RISK_ORDER["medium"]) >= 2:
+            score += 0.8
+            explanations.append("context_sustained_medium")
 
     # -----------------------------
-    # 5️⃣ Emergency override (safety-first)
+    # 5️⃣ Emergency override (absolute)
     # -----------------------------
     emergency_type = detect_emergency_type(text)
     emergency_override = emergency_type is not None
+
+    if emergency_override:
+        explanations.append(f"emergency_override:{emergency_type}")
 
     # -----------------------------
     # 6️⃣ Final risk mapping
@@ -177,10 +179,6 @@ def compute_risk(
 # Score → risk mapping
 # -------------------------------------------------
 def _map_score_to_risk(score: float, emergency_override: bool) -> str:
-    """
-    Map numerical score to discrete risk level.
-    """
-
     if emergency_override or score >= RISK_THRESHOLDS["emergency"]:
         return "emergency"
     if score >= RISK_THRESHOLDS["high"]:

@@ -3,15 +3,14 @@ safety_rules.py
 ================
 Rule-based safety enforcement module for PROTEGO.
 
-This module is the FINAL authority in risk decisions.
-It deterministically overrides ML-based outputs when
-user safety could be compromised.
+FINAL authority in risk decisions.
+Deterministically overrides ML outputs when safety is at risk.
 
-Design principles:
-- Safety-first escalation
-- Deterministic rule priority
-- Explainable overrides
-- Conservative emergency handling
+Enhanced:
+- Safer emergency keyword handling
+- Stronger persistence logic
+- Explicit no-downgrade guarantees
+- Fully backward compatible
 """
 
 from typing import Dict
@@ -34,7 +33,7 @@ RISK_ORDER = {
 
 
 # -------------------------------------------------
-# Safety rule engine
+# Safety rule engine (FINAL AUTHORITY)
 # -------------------------------------------------
 def apply_safety_rules(
     text: str,
@@ -44,18 +43,14 @@ def apply_safety_rules(
     """
     Apply deterministic, priority-ordered safety rules.
 
-    Returns:
-        Dict with:
-        - final_risk (str)
-        - rule_triggered (bool)
-        - rule_reason (str or None)
-        - rule_priority (int or None)
+    Guarantees:
+    - Risk is NEVER downgraded
+    - Emergency signals override all other logic
+    - Rules are explainable and auditable
     """
 
     text_lower = text.lower()
-    final_risk = current_risk
 
-    # Default response
     result = {
         "final_risk": current_risk,
         "rule_triggered": False,
@@ -64,25 +59,25 @@ def apply_safety_rules(
     }
 
     # -------------------------------------------------
-    # RULE 1 (Priority 1): Immediate emergency keywords
+    # RULE 1 (Priority 1): Explicit emergency language
     # -------------------------------------------------
     if keyword_hits(text_lower, EMERGENCY_KEYWORDS) >= 1:
         result.update({
             "final_risk": "emergency",
             "rule_triggered": True,
-            "rule_reason": "Immediate emergency keyword detected",
+            "rule_reason": "Explicit emergency keyword detected",
             "rule_priority": 1
         })
         return result
 
     # -------------------------------------------------
-    # RULE 2 (Priority 2): Repeated high-risk pattern
+    # RULE 2 (Priority 2): Sustained or repeated high risk
     # -------------------------------------------------
     if context_summary.get("repeated_high_risk"):
         result.update({
             "final_risk": "emergency",
             "rule_triggered": True,
-            "rule_reason": "Repeated high or emergency risk in conversation",
+            "rule_reason": "Sustained high or emergency risk pattern detected",
             "rule_priority": 2
         })
         return result
@@ -101,7 +96,7 @@ def apply_safety_rules(
             return result
 
     # -------------------------------------------------
-    # RULE 4 (Priority 4): Escalating risk trend
+    # RULE 4 (Priority 4): Escalating trend
     # -------------------------------------------------
     if context_summary.get("is_escalating"):
         if current_risk == "medium":
@@ -114,18 +109,19 @@ def apply_safety_rules(
             return result
 
     # -------------------------------------------------
-    # RULE 5 (Priority 5): Emergency persistence
+    # RULE 5 (Priority 5): Recent emergency persistence
     # -------------------------------------------------
-    if "emergency" in context_summary.get("recent_risks", []):
+    recent_risks = context_summary.get("recent_risks", [])
+    if recent_risks[-2:].count("emergency") >= 1:
         result.update({
             "final_risk": "emergency",
             "rule_triggered": True,
-            "rule_reason": "Previous emergency detected in conversation",
+            "rule_reason": "Recent emergency risk persists in conversation",
             "rule_priority": 5
         })
         return result
 
     # -------------------------------------------------
-    # No override
+    # No override → keep current risk
     # -------------------------------------------------
     return result

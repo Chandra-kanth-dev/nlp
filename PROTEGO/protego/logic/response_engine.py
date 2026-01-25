@@ -1,75 +1,116 @@
 """
 response_engine.py
 ==================
-Generates safe, empathetic, context-aware responses
-for the PROTEGO chatbot based on FINAL risk level.
+Generates safe, empathetic, layered, HUMAN responses
+for the PROTEGO chatbot.
+
+Priority:
+1. Keyword-based deep responses (most human)
+2. Risk-based layered guidance (fallback)
 """
 
+import json
 import random
+from pathlib import Path
 from typing import Dict, Optional
 
-# -----------------------------
-# Message templates (VARIANTS)
-# -----------------------------
+# -------------------------------------------------
+# Paths
+# -------------------------------------------------
+BASE_DIR = Path(__file__).resolve().parent.parent
+GUIDANCE_PATH = BASE_DIR / "knowledge" / "guidance_templates.json"
+KEYWORD_RESPONSE_PATH = BASE_DIR / "knowledge" / "keyword_responses.json"
 
-LOW_RISK_MESSAGES = [
-    "I’m here with you 🤍\nYou can talk to me about anything that’s on your mind.",
-    "You’re not alone. I’m listening whenever you’re ready to share.",
-    "Take your time. Whatever you’re feeling, it’s okay to talk about it here."
-]
+# -------------------------------------------------
+# Load resources once
+# -------------------------------------------------
+with open(GUIDANCE_PATH, "r", encoding="utf-8") as f:
+    GUIDANCE = json.load(f)
 
-MEDIUM_RISK_MESSAGES = [
-    "Thank you for telling me.\nWhat you’re feeling matters, and you’re not overreacting.\n\nWould you like to share more?",
-    "I hear you. That sounds difficult, and your feelings are valid.\n\nDo you want to tell me what’s been happening?",
-    "I’m really glad you spoke up.\nWhat you’re experiencing deserves attention and care."
-]
+with open(KEYWORD_RESPONSE_PATH, "r", encoding="utf-8") as f:
+    KEYWORD_RESPONSES = json.load(f)
 
-HIGH_RISK_MESSAGES = [
-    "I’m really concerned about your safety.\nWhat you’re experiencing is serious and not okay.\n\nPlease consider reaching out to someone you trust.",
-    "This sounds very serious, and your safety matters.\nYou deserve help and protection.",
-    "I’m worried about you.\nNo one has the right to make you feel unsafe."
-]
 
-EMERGENCY_MESSAGES = [
-    "🚨 **Immediate danger detected** 🚨\n\nPlease try to move to a safer place if you can.\nCall emergency services right now.\n\nYour safety matters. I’m here with you.",
-    "🚨 **Your safety is at risk** 🚨\n\nIf possible, contact emergency services or a trusted person immediately."
-]
+# -------------------------------------------------
+# Empathetic openers (fallback use)
+# -------------------------------------------------
+OPENERS = {
+    "low": [
+        "I’m really glad you reached out 🤍",
+        "Thank you for telling me how you’re feeling.",
+        "I’m here with you, and I’m listening."
+    ],
+    "medium": [
+        "I’m really sorry you’re feeling this way 🤍",
+        "That sounds emotionally heavy, and I’m glad you spoke up.",
+        "What you’re feeling matters, and you’re not alone."
+    ],
+    "high": [
+        "I’m really concerned about you 🤍",
+        "What you’re describing sounds serious, and I care about your safety.",
+        "I’m worried about what you’re going through."
+    ],
+    "emergency": [
+        "I’m really glad you reached out 🤍",
+        "I care about your safety, and I’m concerned right now."
+    ]
+}
 
-# -----------------------------
+
+# -------------------------------------------------
 # Public API (UNCHANGED)
-# -----------------------------
+# -------------------------------------------------
 def generate_response(
     emotion: str,
     final_risk: str,
     emergency_contacts: Optional[Dict[str, str]] = None
 ) -> Dict[str, object]:
     """
-    Generate final chatbot response based on FINAL risk.
+    Generate final chatbot response based on FINAL risk
+    and keyword-based deep responses.
     """
 
-    if final_risk == "emergency":
-        return {
-            "message": random.choice(EMERGENCY_MESSAGES),
-            "show_emergency": True,
-            "tone": "urgent"
-        }
+    # -------------------------------------------------
+    # 1️⃣ KEYWORD-BASED BIG RESPONSES (TOP PRIORITY)
+    # -------------------------------------------------
+    text_probe = f"{emotion} {final_risk}".lower()
 
-    if final_risk == "high":
-        return {
-            "message": random.choice(HIGH_RISK_MESSAGES),
-            "show_emergency": True,
-            "tone": "serious"
-        }
+    for keyword, data in KEYWORD_RESPONSES.items():
+        if keyword in text_probe:
+            return {
+                "message": data["response"],
+                "show_emergency": data["risk"] in {"high", "emergency"},
+                "tone": data["risk"]
+            }
 
-    if final_risk == "medium":
-        return {
-            "message": random.choice(MEDIUM_RISK_MESSAGES),
-            "show_emergency": False,
-            "tone": "concerned"
-        }
+    # -------------------------------------------------
+    # 2️⃣ RISK-BASED LAYERED RESPONSE (FALLBACK)
+    # -------------------------------------------------
+    risk_block = GUIDANCE.get(final_risk, {})
+    guidance_list = risk_block.get("guidance", [])
+    next_prompt = risk_block.get("next_step_prompt", "")
+
+    opener = random.choice(OPENERS.get(final_risk, ["I’m here with you 🤍"]))
+
+    # Pick up to 2 guidance lines (avoid overload)
+    guidance_lines = random.sample(
+        guidance_list,
+        k=min(2, len(guidance_list))
+    )
+
+    message_parts = [
+        opener,
+        "",
+        *guidance_lines
+    ]
+
+    if next_prompt:
+        message_parts.extend(["", next_prompt])
+
+    message = "\n".join(message_parts)
 
     return {
-        "message": random.choice(LOW_RISK_MESSAGES),
-        "show_emergency": False,
-        "tone": "gentle"
+        "message": message,
+        "show_emergency": final_risk in {"high", "emergency"},
+        "tone": risk_block.get("tone", "gentle")
     }

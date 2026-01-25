@@ -1,15 +1,12 @@
 """
 train_emotion.py
 ================
-Training script for emotion classification in PROTEGO.
-
-Pipeline:
-- Load & validate dataset
-- Apply deterministic preprocessing
-- TF-IDF vectorization
-- Logistic Regression (balanced)
-- Evaluation & reporting
-- Save model + vectorizer (runtime-compatible)
+Improved training script for emotion classification in PROTEGO.
+Upgrades:
+- Cleaner TF-IDF
+- Stronger linear classifier
+- Pipeline-based training
+- Same runtime compatibility
 """
 
 import pandas as pd
@@ -18,7 +15,8 @@ from pathlib import Path
 from collections import Counter
 
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
+from sklearn.svm import LinearSVC
+from sklearn.pipeline import Pipeline
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, accuracy_score
 
@@ -44,10 +42,7 @@ required_cols = {"text", "emotion"}
 if not required_cols.issubset(df.columns):
     raise ValueError("Dataset must contain 'text' and 'emotion' columns")
 
-# Drop empty rows safely
 df = df.dropna(subset=["text", "emotion"])
-
-# Normalize labels
 df["emotion"] = df["emotion"].str.strip().str.lower()
 
 ALLOWED_EMOTIONS = {"sadness", "fear", "anger", "shame", "neutral"}
@@ -82,37 +77,40 @@ X_train, X_test, y_train, y_test = train_test_split(
 
 
 # -------------------------------------------------
-# TF-IDF Vectorization
+# Pipeline: TF-IDF + Linear SVM
 # -------------------------------------------------
-
-vectorizer = TfidfVectorizer(
-    ngram_range=(1, 2),
-    max_features=5000,
-    min_df=1
+pipeline = Pipeline(
+    steps=[
+        (
+            "tfidf",
+            TfidfVectorizer(
+                ngram_range=(1, 2),
+                max_features=8000,
+                min_df=2,
+                sublinear_tf=True
+            )
+        ),
+        (
+            "clf",
+            LinearSVC(
+                class_weight="balanced",
+                random_state=42
+            )
+        )
+    ]
 )
 
 
-X_train_vec = vectorizer.fit_transform(X_train)
-X_test_vec = vectorizer.transform(X_test)
+# -------------------------------------------------
+# Train
+# -------------------------------------------------
+pipeline.fit(X_train, y_train)
 
 
 # -------------------------------------------------
-# Train model
+# Evaluate
 # -------------------------------------------------
-model = LogisticRegression(
-    max_iter=2000,
-    class_weight="balanced",
-    random_state=42,
-    n_jobs=-1
-)
-
-model.fit(X_train_vec, y_train)
-
-
-# -------------------------------------------------
-# Evaluate model
-# -------------------------------------------------
-y_pred = model.predict(X_test_vec)
+y_pred = pipeline.predict(X_test)
 
 print("\n📊 Emotion Model Evaluation")
 print("-" * 40)
@@ -122,12 +120,11 @@ print(classification_report(y_test, y_pred))
 
 
 # -------------------------------------------------
-# Save artifacts (RUNTIME COMPATIBLE)
+# Save artifacts (runtime compatible)
 # -------------------------------------------------
-joblib.dump(model, MODEL_DIR / "emotion_model.pkl")
-joblib.dump(vectorizer, MODEL_DIR / "emotion_vectorizer.pkl")
-
+joblib.dump(pipeline.named_steps["clf"], MODEL_DIR / "emotion_model.pkl")
+joblib.dump(pipeline.named_steps["tfidf"], MODEL_DIR / "emotion_vectorizer.pkl")
 
 print("\n✅ Emotion model training complete")
 print(f"📁 Model saved to: {MODEL_DIR / 'emotion_model.pkl'}")
-print(f"📁 Vectorizer saved to: {MODEL_DIR / 'vectorizer.pkl'}")
+print(f"📁 Vectorizer saved to: {MODEL_DIR / 'emotion_vectorizer.pkl'}")

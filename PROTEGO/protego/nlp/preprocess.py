@@ -1,13 +1,13 @@
 """
 preprocess.py
 ================
-Centralized NLP preprocessing module for PROTEGO.
+Enhanced centralized NLP preprocessing module for PROTEGO.
 
-Design goals:
-- Deterministic and safe preprocessing
-- Preserve emotional and safety signals
-- Avoid runtime failures in production
-- ML-friendly normalization
+Upgrades:
+- Stronger negation handling
+- Safer lemmatization
+- Better short-message preservation
+- Fully backward compatible
 """
 
 import re
@@ -17,18 +17,12 @@ from typing import List
 from nltk.stem import WordNetLemmatizer
 from nltk.corpus import stopwords
 
-# -------------------------------------------------
-# IMPORTANT:
-# NLTK resources MUST be installed at build time.
-# Do NOT download during runtime in production.
-# -------------------------------------------------
 
 # -------------------------------------------------
 # Global NLP tools (load once)
 # -------------------------------------------------
 _LEMMATIZER = WordNetLemmatizer()
 
-# Load stopwords safely
 try:
     _STOP_WORDS = set(stopwords.words("english"))
 except LookupError:
@@ -39,11 +33,18 @@ except LookupError:
 
 # Negations are emotionally important — keep them
 NEGATION_WORDS = {
-    "not", "no", "never", "dont", "can't", "cant",
-    "won't", "wont", "isn't", "isnt", "aren't", "arent"
+    "not", "no", "never",
+    "dont", "can't", "cant",
+    "won't", "wont",
+    "isn't", "isnt",
+    "aren't", "arent",
+    "didn't", "didnt",
+    "couldn't", "couldnt",
+    "shouldn't", "shouldnt"
 }
 
 _STOP_WORDS = _STOP_WORDS - NEGATION_WORDS
+
 
 # -------------------------------------------------
 # Regex patterns (compiled once)
@@ -53,10 +54,11 @@ NON_ALPHA_PATTERN = re.compile(r"[^a-zA-Z!?'\s]")
 MULTISPACE_PATTERN = re.compile(r"\s+")
 REPEAT_CHAR_PATTERN = re.compile(r"(.)\1{2,}")  # soooo → soo
 
+
 # -------------------------------------------------
 # Core preprocessing function
 # -------------------------------------------------
-@lru_cache(maxsize=1024)
+@lru_cache(maxsize=4096)
 def clean_text(text: str) -> str:
     """
     Clean and normalize input text while preserving
@@ -66,7 +68,6 @@ def clean_text(text: str) -> str:
     if not isinstance(text, str):
         return ""
 
-    # Trim & lowercase
     text = text.strip().lower()
     if not text:
         return ""
@@ -83,14 +84,21 @@ def clean_text(text: str) -> str:
     # Normalize whitespace
     text = MULTISPACE_PATTERN.sub(" ", text)
 
-    # Tokenize
     tokens = text.split()
 
-    # Stopword removal + lemmatization
+    # Very short messages → minimal cleaning
+    if len(tokens) <= 3:
+        return " ".join(tokens)
+
     cleaned_tokens = []
     for token in tokens:
         if token not in _STOP_WORDS:
-            lemma = _LEMMATIZER.lemmatize(token)
+            # Lightweight lemmatization heuristic
+            if token.endswith("ing") or token.endswith("ed"):
+                lemma = _LEMMATIZER.lemmatize(token, pos="v")
+            else:
+                lemma = _LEMMATIZER.lemmatize(token)
+
             cleaned_tokens.append(lemma)
 
     return " ".join(cleaned_tokens)
